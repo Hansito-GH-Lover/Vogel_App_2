@@ -2,37 +2,76 @@ import streamlit as st
 import tensorflow as tf
 import numpy as np
 from PIL import Image
+import base64
+from io import BytesIO
 
 # -------------------------
 # CONFIG
 # -------------------------
 st.set_page_config(
-    page_title="Vogel-Erkennung Pro",
+    page_title="Vogel-Erkennung",
     page_icon="🐦",
     layout="centered"
 )
 
 # -------------------------
-# STYLE (Custom CSS)
+# STYLE (Instagram Look)
 # -------------------------
 st.markdown("""
 <style>
-.main {
+body {
     background-color: #0e1117;
 }
-h1 {
-    text-align: center;
+
+.insta-card {
+    max-width: 420px;
+    margin: auto;
+    border-radius: 20px;
+    overflow: hidden;
+    background: #1a1d24;
+    box-shadow: 0px 6px 25px rgba(0,0,0,0.6);
 }
-.result-box {
+
+.insta-header {
+    padding: 12px;
+    font-weight: bold;
+    border-bottom: 1px solid #333;
+    color: white;
+}
+
+.insta-image-container {
+    position: relative;
+}
+
+.insta-image {
+    width: 100%;
+    display: block;
+}
+
+.overlay {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
     padding: 15px;
-    border-radius: 12px;
-    margin-top: 15px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    color: white;
 }
-.success-box {
-    background-color: #1f3d2b;
+
+.success {
+    color: #4ade80;
+    font-weight: bold;
+    font-size: 18px;
 }
-.warning-box {
-    background-color: #3d1f1f;
+
+.fail {
+    color: #f87171;
+    font-weight: bold;
+    font-size: 18px;
+}
+
+.caption {
+    font-size: 14px;
+    opacity: 0.85;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -41,7 +80,7 @@ h1 {
 # HEADER
 # -------------------------
 st.title("🐦 Vogel-Erkennung")
-st.markdown("Lade ein Bild hoch und die KI sagt dir, ob ein Vogel drauf ist.")
+st.markdown("Lade ein Bild hoch – wie eine Instagram Story ✨")
 
 # -------------------------
 # MODELL LADEN
@@ -50,11 +89,11 @@ st.markdown("Lade ein Bild hoch und die KI sagt dir, ob ein Vogel drauf ist.")
 def load_model():
     return tf.keras.applications.EfficientNetB0(weights="imagenet")
 
-with st.spinner("🔄 Lade KI-Modell..."):
+with st.spinner("🔄 KI wird geladen..."):
     model = load_model()
 
 # -------------------------
-# LABELS
+# LABELS LADEN
 # -------------------------
 @st.cache_resource
 def load_labels():
@@ -76,7 +115,7 @@ def preprocess(image):
     return np.expand_dims(img_array, axis=0)
 
 # -------------------------
-# VOGEL-LISTE
+# VOGEL KEYWORDS
 # -------------------------
 bird_keywords = [
     "bird", "hen", "cock", "rooster", "ostrich", "brambling", "goldfinch",
@@ -87,20 +126,18 @@ bird_keywords = [
 ]
 
 # -------------------------
-# UPLOAD UI
+# UPLOAD
 # -------------------------
 uploaded_file = st.file_uploader("📤 Bild hochladen", type=["jpg", "jpeg", "png"])
 
 if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
-    
-    st.image(image, caption="📸 Dein Bild", use_column_width=True)
 
     with st.spinner("🧠 Analysiere Bild..."):
         processed = preprocess(image)
         prediction = model.predict(processed)
 
-    # Top 5
+    # Top-5
     top_indices = prediction[0].argsort()[-5:][::-1]
 
     results = []
@@ -110,34 +147,50 @@ if uploaded_file:
         results.append((label, confidence))
 
     # -------------------------
-    # RESULT CHECK
+    # VOGEL CHECK
     # -------------------------
     found_bird = False
+    main_label = ""
+    main_conf = 0
 
     for label, confidence in results:
         if any(word in label.lower() for word in bird_keywords):
-            st.markdown(f"""
-            <div class="result-box success-box">
-                <h3>🐦 Vogel erkannt!</h3>
-                <p><b>{label}</b><br>
-                Sicherheit: {round(confidence*100,2)}%</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.progress(int(confidence * 100))
             found_bird = True
+            main_label = label
+            main_conf = confidence
             break
 
     if not found_bird:
-        st.markdown("""
-        <div class="result-box warning-box">
-            <h3>❌ Kein Vogel erkannt</h3>
-        </div>
-        """, unsafe_allow_html=True)
+        main_label, main_conf = results[0]
 
     # -------------------------
-    # DETAILS (aufklappbar)
+    # IMAGE -> BASE64
     # -------------------------
-    with st.expander("🔍 Details anzeigen (Top 5)"):
+    buffer = BytesIO()
+    image.save(buffer, format="JPEG")
+    img_str = base64.b64encode(buffer.getvalue()).decode()
+
+    # -------------------------
+    # INSTAGRAM CARD
+    # -------------------------
+    st.markdown(f"""
+    <div class="insta-card">
+        <div class="insta-header">📸 Vogel-KI Analyse</div>
+
+        <div class="insta-image-container">
+            <img src="data:image/jpeg;base64,{img_str}" class="insta-image"/>
+
+            <div class="overlay">
+                {"<div class='success'>🐦 Vogel erkannt</div>" if found_bird else "<div class='fail'>❌ Kein Vogel</div>"}
+                <div class="caption">{main_label} ({round(main_conf*100,2)}%)</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # -------------------------
+    # DETAILS
+    # -------------------------
+    with st.expander("🔍 Top 5 Vorhersagen"):
         for label, confidence in results:
             st.write(f"{label} – {round(confidence*100,2)}%")
